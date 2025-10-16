@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Video → ASCII (Web)</title>
+  <style>
+    :root{--bg:#0b0b0b;--ui:#111;--muted:#9ca3af}
+    html,body{height:100%;margin:0;font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial}
+    body{background:linear-gradient(180deg,#060606, #0f172a);color:#e6eef8;display:flex;gap:16px;align-items:flex-start;padding:18px}
+    .panel{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:14px;box-shadow:0 6px 20px rgba(2,6,23,0.6);width:420px}
+    .viewer{flex:1;min-width:320px;display:flex;flex-direction:column;gap:12px}
+
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    input[type=range]{width:100%}
+    .row{display:flex;gap:8px;align-items:center}
+    .row > *{flex:1}
+    button{background:#0ea5a1;border:0;padding:8px 12px;border-radius:8px;color:#032;cursor:pointer;font-weight:600}
+    button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted)}
+
+    pre#ascii{
+      background: #000; color: #cfcfcf; padding: 12px; border-radius: 8px; font-family: "Courier New", Courier, monospace; overflow:auto; line-height: 7px; /* tuned by JS */
+      font-size: 8px; white-space: pre; margin:0; height:600px; width:100%;
+    }
+
+    .small{font-size:12px;color:var(--muted)}
+    .controls{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+    .defaults-list{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:10px 0;max-height:220px;overflow:auto}
+    .def-item{background:rgba(255,255,255,0.02);padding:6px;border-radius:8px;display:flex;gap:8px;align-items:center;cursor:pointer;border:1px solid transparent}
+    .def-item:hover{border-color:rgba(255,255,255,0.04)}
+    .def-item.active{outline:2px solid rgba(14,165,161,0.12)}
+    .def-thumb{width:64px;height:40px;background:#071018;border-radius:6px;flex:0 0 64px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px}
+    .def-meta{font-size:13px}
+
+    footer{font-size:12px;color:var(--muted);margin-top:8px}
+
+    @media (max-width:900px){body{flex-direction:column} .panel{width:100%}}
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h3 style="margin:0 0 6px 0">Video → ASCII (web)</h3>
+    <p class="small">Videoyu yükle veya URL yapıştır. Ayrıca sayfayla birlikte gelen <strong>varsayılan videolardan</strong> birini seçip doğrudan izleyebilirsin.</p>
+
+    <label>Video dosyası / URL</label>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <input id="file" type="file" accept="video/*" style="flex:1" />
+      <button id="useUrl" class="ghost">URL ile</button>
+    </div>
+    <input id="videoUrl" placeholder="Video URL (CORS izinli)" style="width:100%;margin-bottom:8px;display:none" />
+
+    <label>Varsayılan videolar</label>
+    <div id="defaults" class="defaults-list" aria-live="polite"></div>
+
+    <div class="controls">
+      <div>
+        <label>Genişlik (sütun) — daha az = daha hızlı</label>
+        <input id="cols" type="range" min="40" max="220" value="120">
+        <div class="small"><span id="colsVal">120</span> sütun</div>
+      </div>
+      <div>
+        <label>FPS (çerçeve/s)</label>
+        <input id="fps" type="range" min="1" max="30" value="12">
+        <div class="small"><span id="fpsVal">12</span> fps</div>
+      </div>
+
+      <div>
+        <label>Karakter seti</label>
+        <select id="charset">
+          <option value="@%#*+=-:. ">@%#*+=-:. (koyu→açık)</option>
+          <option value="$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\|()1{}[]?-_+~<>i!lI;:,\"^\'`.'">Yüksek detay (uzun)</option>
+          <option value=" .:-=+*#%@">Ters (açık→koyu)</option>
+        </select>
+      </div>
+
+      <div>
+        <label>Invert (ters çevir)</label>
+        <div class="row"><input id="invert" type="checkbox" /> <span class="small">karakterleri tersle</span></div>
+      </div>
+
+      <div>
+        <label>Karakter oranı (yükseklik/ genişlik düzeltme)</label>
+        <input id="charRatio" type="range" min="0.3" max="1.4" step="0.05" value="0.3">
+        <div class="small"><span id="ratioVal">0.3</span></div>
+      </div>
+
+      <div>
+        <label>Font boyutu (px)</label>
+        <input id="fontSize" type="range" min="6" max="18" value="8">
+        <div class="small"><span id="fontVal">8</span> px</div>
+      </div>
+    </div>
+
+    <div style="display:flex;margin-top:10px;gap:8px">
+      <button id="start">Başlat</button>
+      <button id="stop" class="ghost">Durdur</button>
+      <button id="download" class="ghost">ASCII Kaydet (.txt)</button>
+    </div>
+
+    <footer>Not: Harici URL kullanıyorsanız server CORS izinleri vermeli. Büyük videolar yavaş çalışır.</footer>
+  </div>
+
+  <div class="viewer">
+    <video id="video" crossorigin="anonymous" style="display:none"></video>
+    <canvas id="c" style="display:none"></canvas>
+    <pre id="ascii">Yükleniyor...</pre>
+  </div>
+
+<script>
+(function(){
+  // --- CONFIG: varsayılan videolar ---
+  // Bu listeyi sunucundaki dosya yollarına göre değiştir (ör. "videos/myclip.mp4").
+  // Kullanıcı videoyu yüklemeden önce buradan seçip doğrudan oynatabilir.
+    const defaults = [
+    {id:1, title:'Bad Apple', src:'videos/video1.webm'},
+    {id:2, title:'Hmm?', src:'videos/video2.webm'},
+  ];
+
+  // --- UI elements ---
+  const file = document.getElementById('file');
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('c');
+  const asciiEl = document.getElementById('ascii');
+  const colsInput = document.getElementById('cols');
+  const fpsInput = document.getElementById('fps');
+  const charsetSel = document.getElementById('charset');
+  const invertCb = document.getElementById('invert');
+  const startBtn = document.getElementById('start');
+  const stopBtn = document.getElementById('stop');
+  const downloadBtn = document.getElementById('download');
+  const useUrlBtn = document.getElementById('useUrl');
+  const videoUrlInput = document.getElementById('videoUrl');
+  const colsVal = document.getElementById('colsVal');
+  const fpsVal = document.getElementById('fpsVal');
+  const ratio = document.getElementById('charRatio');
+  const ratioVal = document.getElementById('ratioVal');
+  const fontSize = document.getElementById('fontSize');
+  const fontVal = document.getElementById('fontVal');
+  const defaultsContainer = document.getElementById('defaults');
+
+  colsInput.addEventListener('input', ()=> colsVal.textContent = colsInput.value);
+  fpsInput.addEventListener('input', ()=> fpsVal.textContent = fpsInput.value);
+  ratio.addEventListener('input', ()=> ratioVal.textContent = ratio.value);
+  fontSize.addEventListener('input', ()=> { fontVal.textContent = fontSize.value; asciiEl.style.fontSize = fontSize.value + 'px'; });
+
+  useUrlBtn.addEventListener('click', ()=>{
+    videoUrlInput.style.display = videoUrlInput.style.display === 'none' ? 'block' : 'none';
+  });
+
+  let rafId = null;
+  let running = false;
+  let lastTime = 0;
+  let activeDefaultId = null;
+
+  // render defaults list
+  function renderDefaults(){
+    defaultsContainer.innerHTML = '';
+    defaults.forEach(d=>{
+      const el = document.createElement('div');
+      el.className = 'def-item';
+      el.dataset.id = d.id;
+      el.innerHTML = `<div class="def-thumb">VID</div><div class="def-meta"><strong>${escapeHtml(d.title)}</strong><div class="small">${d.src}</div></div>`;
+      el.addEventListener('click', ()=>{
+        // set video src from defaults
+        setupVideoSrc(d.src);
+        markActive(d.id);
+      });
+      defaultsContainer.appendChild(el);
+    });
+  }
+
+  function markActive(id){
+    activeDefaultId = id;
+    const items = defaultsContainer.querySelectorAll('.def-item');
+    items.forEach(it => it.classList.toggle('active', String(it.dataset.id) === String(id)));
+  }
+
+  file.addEventListener('change', e=>{
+    if(e.target.files && e.target.files[0]){
+      const url = URL.createObjectURL(e.target.files[0]);
+      setupVideoSrc(url);
+      markActive(null);
+    }
+  });
+
+  videoUrlInput.addEventListener('change', ()=>{
+    const url = videoUrlInput.value.trim();
+    if(url) { setupVideoSrc(url); markActive(null); }
+  });
+
+  function setupVideoSrc(src){
+    stop();
+    // allow both Blob URLs (local) and relative server paths
+    video.src = src;
+    video.load();
+    video.addEventListener('loadedmetadata', ()=>{
+      asciiEl.textContent = 'Video yüklendi — oynatmak için Başlat a basın.';
+    }, {once:true});
+  }
+
+  function brightness(r,g,b){
+    return 0.2126*r + 0.7152*g + 0.0722*b;
+  }
+
+  function frameToAscii(){
+    if(video.paused || video.ended) return;
+    const cols = parseInt(colsInput.value,10);
+    const charRatio = parseFloat(ratio.value);
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if(!vw || !vh) return;
+
+    const scale = vw / cols;
+    const rows = Math.round(vh / scale / charRatio);
+    canvas.width = cols;
+    canvas.height = Math.max(1, rows);
+    const ctx = canvas.getContext('2d');
+    // draw in grayscale to slightly improve mapping
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const img = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+    const charset = charsetSel.value;
+    const invert = invertCb.checked;
+    const out = [];
+    const charsLen = charset.length;
+
+    for(let y=0;y<canvas.height;y++){
+      let line = '';
+      for(let x=0;x<canvas.width;x++){
+        const i = (y*canvas.width + x)*4;
+        const r = img[i], g = img[i+1], b = img[i+2];
+        const bright = brightness(r,g,b) / 255; // 0..1
+        let idx = Math.floor(bright * (charsLen - 1));
+        if(invert) idx = (charsLen - 1) - idx;
+        line += charset[idx];
+      }
+      out.push(line);
+    }
+
+    asciiEl.style.lineHeight = Math.max(1, Math.round(fontSize.value / 6)) + 'px';
+    asciiEl.textContent = out.join('\n');
+  }
+
+  
+
+  function loop(now){
+    const fps = parseInt(fpsInput.value,10);
+    const interval = 1000 / fps;
+    if(!lastTime) lastTime = now;
+    const delta = now - lastTime;
+    if(delta >= interval){
+      frameToAscii();
+      lastTime = now - (delta % interval);
+    }
+    if(running) rafId = requestAnimationFrame(loop);
+  }
+
+  function start(){
+    if(!video.src){
+      asciiEl.textContent = 'Önce bir video yükleyin veya varsayılanlardan seçin.';
+      return;
+    }
+    running = true;
+    video.play().catch(err=>{
+      console.warn('video.play() hata:', err);
+    });
+    lastTime = 0;
+    if(rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(loop);
+  }
+
+  function stop(){
+    running = false;
+    if(rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    try{ video.pause(); } catch(e){}
+  }
+
+  startBtn.addEventListener('click', start);
+  stopBtn.addEventListener('click', ()=>{ stop(); asciiEl.textContent = 'Durduruldu.' });
+
+  downloadBtn.addEventListener('click', ()=>{
+    const txt = asciiEl.textContent || '';
+    const blob = new Blob([txt], {type:'text/plain;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ascii.txt';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  // small UX: keyboard space toggles start/stop
+  window.addEventListener('keydown', e=>{
+    if(e.code === 'Space'){
+      e.preventDefault();
+      if(running) stop(); else start();
+    }
+  });
+
+  // helper
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' }[c])); }
+
+  // init
+  renderDefaults();
+  colsVal.textContent = colsInput.value;
+  fpsVal.textContent = fpsInput.value;
+  ratioVal.textContent = ratio.value;
+  fontVal.textContent = fontSize.value;
+  asciiEl.style.fontSize = fontSize.value + 'px';
+})();
+</script>
+</body>
+</html>
+
+<!-- too lazy to put this into code -->
+<footer id="whydll-footer">
+  <a href="https://github.com/Whydll/ascii-player" target="_blank" rel="noopener noreferrer">Whydll</a>
+</footer>
+
+<style>
+  #whydll-footer {
+    position: fixed;
+    bottom: 12px;
+    left: 18px;
+    z-index: 1000;
+  }
+
+  #whydll-footer a {
+    color: rgba(255, 255, 255, 0.45);
+    font-family: "Montserrat", sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.25s ease;
+  }
+
+  #whydll-footer a:hover {
+    color: rgba(255, 255, 255, 1);
+    text-shadow: 0 0 8px rgba(255,255,255,0.4);
+    opacity: 1;
+  }
+</style>
+
+<!-- code mostly done by ai btw -->
