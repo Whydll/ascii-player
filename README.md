@@ -21,3 +21,5 @@
 ## ⚖️ License
 
 Distributed under the MIT License. See [LICENSE.txt](https://github.com/Whydll/ascii-player/blob/main/LICENSE) for more information.
+
+# [Terminal Version](https://github.com/Whydll/ascii-player-terminal/tree/master)
